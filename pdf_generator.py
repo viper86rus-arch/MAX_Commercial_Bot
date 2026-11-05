@@ -162,13 +162,13 @@ def generate_proposal_pdf(
     # 1. Шапка (Синий баннер V1PER IT Solutions)
     stream_ops.append("0.08 0.20 0.38 rg 0 740 595 102 re f")
     stream_ops.append("1.0 1.0 1.0 rg")
-    stream_ops.append(f"BT /F1 16 Tf 40 802 Td <{enc('V1PER IT SOLUTIONS | КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ')}> Tj ET")
+    stream_ops.append(f"BT /F1 15 Tf 40 802 Td <{enc('СТУДИЯ «V1PER IT SOLUTIONS» | КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ')}> Tj ET")
     stream_ops.append(f"BT /F1 11 Tf 40 768 Td <{enc(f'Официальная смета к заказу №{order_id} от {date_str}')}> Tj ET")
 
     # 2. Карточка заказчика и реквизиты
     stream_ops.append("0.15 0.15 0.15 rg")
     stream_ops.append(f"BT /F1 11 Tf 40 705 Td <{enc(f'Заказчик: {client_name}')}> Tj ET")
-    stream_ops.append(f"BT /F1 10.5 Tf 40 686 Td <{enc(f'Исполнитель: {clean_text_for_pdf(SELLER_NAME)} | Senior Python Engineer')}> Tj ET")
+    stream_ops.append(f"BT /F1 10.5 Tf 40 686 Td <{enc(f'Исполнитель: {clean_text_for_pdf(SELLER_NAME)} (V1PER) | Python Full-Stack & Automation Engineer')}> Tj ET")
     stream_ops.append(f"BT /F1 10 Tf 40 668 Td <{enc('Портфолио решений: https://github.com/viper86rus-arch')}> Tj ET")
 
     # Горизонтальный разделитель
@@ -268,7 +268,7 @@ def generate_proposal_pdf(
     stream_ops.append("0.06 0.32 0.73 RG 0.8 w 295 243 m 545 243 l S")
 
     stream_ops.append(f"BT /F1 8 Tf 296 228 Td <{enc('Статус: Плательщик НПД (Самозанятый РФ)')}> Tj ET")
-    stream_ops.append(f"BT /F1 8 Tf 296 212 Td <{enc(f'Владелец: {clean_text_for_pdf(SELLER_NAME)}')}> Tj ET")
+    stream_ops.append(f"BT /F1 8 Tf 296 212 Td <{enc(f'Владелец: {clean_text_for_pdf(SELLER_NAME)} (V1PER)')}> Tj ET")
     stream_ops.append(f"BT /F1 8 Tf 296 196 Td <{enc(f'ИНН: {SELLER_INN}')}> Tj ET")
     stream_ops.append(f"BT /F1 7.5 Tf 296 180 Td <{enc(f'Дата подписания: {time_str} МСК')}> Tj ET")
     stream_ops.append(f"BT /F1 7.5 Tf 296 164 Td <{enc(f'Идентификатор (хэш): {doc_hash}')}> Tj ET")
@@ -278,7 +278,7 @@ def generate_proposal_pdf(
     # Подвал страницы
     stream_ops.append("0.85 0.85 0.85 RG 0.5 w 40 88 m 555 88 l S")
     stream_ops.append("0.55 0.55 0.55 rg")
-    stream_ops.append(f"BT /F1 7.5 Tf 40 74 Td <{enc(f'Смета №{order_id} сформирована автоматически ядром V1PER IT Solutions. Документ защищен.')}> Tj ET")
+    stream_ops.append(f"BT /F1 7.5 Tf 40 74 Td <{enc(f'Смета №{order_id} сформирована автоматически студией V1PER IT Solutions. Документ защищен.')}> Tj ET")
 
     stream_data = "\n".join(stream_ops).encode("ascii")
 
