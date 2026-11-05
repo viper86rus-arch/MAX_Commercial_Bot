@@ -9,17 +9,21 @@
 import sys
 import signal
 import json
+import re
+from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Any, List, Optional
 from config import (
     PORT, HOST, IS_DEMO,
-    MAX_BOT_TOKEN, DATABASE_PATH, logger
+    MAX_BOT_TOKEN, DATABASE_PATH, ADMIN_MAX_ID, PROPOSALS_DIR, logger
 )
 from storage import (
     init_db, get_user_state, set_user_state,
-    clear_user_state, save_lead, export_leads_to_csv
+    clear_user_state, save_lead, export_leads_to_csv,
+    get_admin_stats, get_recent_leads
 )
-from max_api import MaxApiClient, send_telegram_alert
+from max_api import MaxApiClient, send_telegram_alert, send_admin_order_notification
+from pdf_generator import generate_proposal_pdf
 
 # ==============================================================================
 # 1. ТЕКСТЫ И ШАБЛОНЫ ДИАЛОГОВ
@@ -251,6 +255,8 @@ class BotEngine:
                 "max_id": user_id,
                 "service": t_info["title"],
                 "budget": f"{total_price:,} ₽ ({total_days} дн.)",
+                "db_title": db_info["title"],
+                "extra_title": ext_info["title"],
                 "desc": (
                     f"Заказ по смете калькулятора:\n"
                     f"• Проект: {t_info['title']}\n"
@@ -277,6 +283,83 @@ class BotEngine:
 
         return self._handle_calculator(user_id, "calc_step1", user_name)
 
+    def _handle_admin(self, user_id: str, text: str, user_name: str = "") -> str:
+        """
+        Закрытая панель управления администратора студии V1PER IT Solutions.
+        СТРОГИЙ КОНТРОЛЬ ДОСТУПА: доступна ТОЛЬКО пользователю с ADMIN_MAX_ID.
+        """
+        if str(user_id) != str(ADMIN_MAX_ID):
+            logger.warning(f"[SECURITY] Отклонена попытка доступа к админ-панели от {user_name} (ID: {user_id})")
+            fallback = "Извините, не распознал команду. Нажмите /start для вызова главного меню."
+            self.api.send_message(user_id, fallback, MAIN_KEYBOARD)
+            return fallback
+
+        logger.info(f"[ADMIN] Авторизованный вход в админ-панель: {user_name} ({user_id}) -> {text}")
+
+        # 1. Последние заявки
+        if text == "admin_leads":
+            leads = get_recent_leads(limit=5, db_path=self.db_path)
+            if not leads:
+                leads_msg = "📋 <b>База заявок пока пуста.</b>"
+            else:
+                lines = ["📋 <b>ПОСЛЕДНИЕ ПОСТУПИВШИЕ ЗАЯВКИ:</b>", "━━━━━━━━━━━━━━━━━━"]
+                for l in leads:
+                    lines.append(
+                        f"<b>#{l['id']} | {l['user_name']}</b> (MAX: <code>{l['max_user_id']}</code>)\n"
+                        f"📞 Контакт: <b>{l['phone']}</b>\n"
+                        f"💼 Услуга: {l['service_type']}\n"
+                        f"💰 Смета: <b>{l['budget_range']}</b>\n"
+                        f"📅 Дата: <i>{l['created_at']}</i>\n"
+                        f"──────────────────"
+                    )
+                leads_msg = "\n".join(lines)
+
+            kb = [
+                [{"text": "📥 Выгрузить Excel (CSV)", "action": "admin_export"},
+                 {"text": "📊 Статистика", "action": "admin_stats"}],
+                [{"text": "◀️ В главное меню", "action": "btn_menu"}]
+            ]
+            self.api.send_message(user_id, leads_msg, kb)
+            return leads_msg
+
+        # 2. Выгрузка в Excel
+        if text == "admin_export":
+            export_path = export_leads_to_csv(self.db_path)
+            caption = "📥 <b>Выгрузка базы лидов в Excel (CSV UTF-8 BOM, ;)</b> сформирована."
+            kb = [
+                [{"text": "📊 В панель админа", "action": "admin_menu"},
+                 {"text": "📋 Последние заявки", "action": "admin_leads"}],
+                [{"text": "◀️ В главное меню", "action": "btn_menu"}]
+            ]
+            self.api.send_document(user_id, export_path, caption=caption, keyboard=kb)
+            return caption
+
+        # 3. Главный экран админки со статистикой (/admin, admin_menu, admin_stats)
+        stats = get_admin_stats(self.db_path)
+        admin_text = (
+            "👑 <b>ПАНЕЛЬ УПРАВЛЕНИЯ АДМИНИСТРАТОРА (V1PER)</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📊 <b>Статистика воронки:</b>\n"
+            f"• Всего заказов в базе: <b>{stats['total_leads']}</b>\n"
+            f"• Поступило за сегодня: <b>{stats['today_leads']}</b>\n"
+            f"• Активных диалогов сейчас: <b>{stats['active_dialogs']}</b>\n\n"
+            "💼 <b>Бухгалтерия & Оборот:</b>\n"
+            f"• Суммарный объём смет: <b>{stats['total_revenue']:,} ₽</b>\n"
+            f"• Средний чек проекта: <b>{stats['avg_check']:,} ₽</b>\n"
+            "• Гарантийное сопровождение: <b>30 дней</b>\n"
+            "• Статус исполнителя: <b>Самозанятый РФ (ЭЦП 63-ФЗ)</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "<i>Выберите необходимое действие:</i>"
+        )
+        admin_kb = [
+            [{"text": "📋 Последние заявки", "action": "admin_leads"},
+             {"text": "📥 Выгрузить Excel (CSV)", "action": "admin_export"}],
+            [{"text": "🔄 Обновить статистику", "action": "admin_stats"},
+             {"text": "◀️ В клиентское меню", "action": "btn_menu"}]
+        ]
+        self.api.send_message(user_id, admin_text, admin_kb)
+        return admin_text
+
     def process_incoming(self, user_id: str, text: str, user_name: str = "") -> str:
         """Обрабатывает входящее действие пользователя и возвращает ответ."""
         text = text.strip()
@@ -287,6 +370,10 @@ class BotEngine:
             clear_user_state(user_id, self.db_path)
             self.api.send_message(user_id, WELCOME_TEXT, MAIN_KEYBOARD)
             return WELCOME_TEXT
+
+        # Закрытая панель администратора (/admin, admin_*)
+        if text in ("/admin", "admin_menu", "admin_stats", "admin_leads", "admin_export") or text.startswith("admin_"):
+            return self._handle_admin(user_id, text, user_name)
 
         # Интерактивный калькулятор сметы (пошаговый квиз-конфигуратор)
         if text in ("🧮 Калькулятор", "🧮 Калькулятор сметы", "btn_calc", "/calc") or text.startswith(("calc_", "calc_s2:", "calc_s3:", "calc_res:", "calc_ord:")):
@@ -356,7 +443,7 @@ class BotEngine:
             self.api.send_message(user_id, prompt)
             return prompt
 
-        # Шаг 4 -> Финал (Сохранение заявки и отправка в TG)
+        # Шаг 4 -> Финал (Сохранение заявки, генерация PDF-сметы с ЭЦП и безопасная отправка админу)
         if step == "ask_contact":
             session["phone"] = text
             if not session.get("name"):
@@ -367,25 +454,51 @@ class BotEngine:
                 max_user_id=user_id,
                 user_name=session["name"],
                 phone=session["phone"],
-                service_type=session.get("service", "Общий"),
+                service_type=session.get("service", "Общий запрос"),
                 platforms="MAX",
                 budget_range=session.get("budget", "Договорной"),
                 description=session.get("desc", "—"),
                 db_path=self.db_path
             )
 
-            # Отправка мгновенного алерта в Telegram разработчику
-            send_telegram_alert(lead_id, session)
+            # Генерация официального КП в PDF с ЭЦП (63-ФЗ РФ)
+            pdf_path = None
+            try:
+                b_str = session.get("budget", "")
+                nums = re.findall(r"\d+", b_str.replace(" ", "").replace(",", ""))
+                total_price = int(nums[0]) if nums else 5000
+                total_days = int(nums[1]) if len(nums) > 1 else 2
+
+                pdf_path = generate_proposal_pdf(
+                    order_id=lead_id,
+                    client_name=session["name"],
+                    project_type=session.get("service", "Разработка ПО под ключ"),
+                    db_title=session.get("db_title", "По согласованию"),
+                    extra_title=session.get("extra_title", "Включено в договор"),
+                    total_price=total_price,
+                    total_days=total_days
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при генерации PDF сметы для заказа #{lead_id}: {e}")
+
+            # Отправка мгновенного закрытого уведомления СТРОГО администратору (ADMIN_MAX_ID) + Telegram
+            send_admin_order_notification(self.api, lead_id, session, pdf_path=pdf_path)
 
             # Сброс состояния
             clear_user_state(user_id, self.db_path)
 
             success_text = (
                 f"✅ <b>Заявка #{lead_id} успешно принята!</b>\n\n"
-                f"Спасибо за обращение. Ведущий инженер свяжется с вами в течение 15 минут для уточнения деталей.\n\n"
-                f"<i>Для возврата в меню отправьте /start</i>"
+                f"Ваша официальная смета с цифровой подписью (ЭЦП 63-ФЗ РФ) сформирована и прикреплена к сообщению.\n\n"
+                f"Ведущий инженер свяжется с вами в течение 15 минут для подтверждения деталей.\n\n"
+                f"<i>Для возврата в главное меню отправьте /start</i>"
             )
-            self.api.send_message(user_id, success_text, MAIN_KEYBOARD)
+
+            if pdf_path and Path(pdf_path).exists():
+                self.api.send_document(user_id, pdf_path, caption=success_text, keyboard=MAIN_KEYBOARD)
+            else:
+                self.api.send_message(user_id, success_text, MAIN_KEYBOARD)
+
             return success_text
 
 

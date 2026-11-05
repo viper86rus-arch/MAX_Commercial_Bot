@@ -18,9 +18,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from storage import (
     init_db, get_user_state, set_user_state,
-    clear_user_state, save_lead, export_leads_to_csv
+    clear_user_state, save_lead, export_leads_to_csv,
+    get_admin_stats, get_recent_leads
 )
+from config import ADMIN_MAX_ID
 from max_api import MaxApiClient
+from pdf_generator import generate_proposal_pdf
 from bot import BotEngine
 
 class TestMaxCommercialBot(unittest.TestCase):
@@ -176,6 +179,62 @@ class TestMaxCommercialBot(unittest.TestCase):
         reply_tz_res = self.engine.process_incoming(uid, "calc_res:tz:basic:none", name)
         self.assertIn("ИТОГОВЫЙ РАСЧЁТ СМЕТЫ", reply_tz_res)
         self.assertIn("2,500 ₽", reply_tz_res)
+
+    def test_admin_security_and_stats(self):
+        """Проверяет строгий контроль доступа к закрытой админ-панели."""
+        # 1. Попытка взлома / несанкционированного доступа
+        stranger_id = "random_user_9999"
+        reply_hacker = self.engine.process_incoming(stranger_id, "/admin", "Аноним")
+        self.assertIn("не распознал команду", reply_hacker)
+        self.assertNotIn("ПАНЕЛЬ УПРАВЛЕНИЯ", reply_hacker)
+
+        # 2. Авторизованный вход владельца (ADMIN_MAX_ID)
+        admin_reply = self.engine.process_incoming(ADMIN_MAX_ID, "/admin", "V1PER")
+        self.assertIn("ПАНЕЛЬ УПРАВЛЕНИЯ АДМИНИСТРАТОРА", admin_reply)
+        self.assertIn("Статистика воронки", admin_reply)
+        self.assertIn("Бухгалтерия & Оборот", admin_reply)
+
+    def test_admin_leads_and_export(self):
+        """Проверяет вывод последних заявок и экспорт в админке."""
+        # Создаем тестовую заявку
+        save_lead(
+            max_user_id="lead_usr_1",
+            user_name="Заказчик Тест",
+            phone="+79990001122",
+            service_type="Парсер Wildberries",
+            platforms="MAX",
+            budget_range="7500 ₽",
+            description="Парсинг СПП",
+            db_path=self.db_path
+        )
+
+        # Админ смотрит заявки
+        leads_reply = self.engine.process_incoming(ADMIN_MAX_ID, "admin_leads", "V1PER")
+        self.assertIn("ПОСЛЕДНИЕ ПОСТУПИВШИЕ ЗАЯВКИ", leads_reply)
+        self.assertIn("Заказчик Тест", leads_reply)
+        self.assertIn("7500 ₽", leads_reply)
+
+        # Админ запрашивает экспорт
+        export_reply = self.engine.process_incoming(ADMIN_MAX_ID, "admin_export", "V1PER")
+        self.assertIn("Выгрузка базы лидов в Excel", export_reply)
+
+    def test_proposal_pdf_generation(self):
+        """Проверяет генерацию A4 PDF сметы с электронной подписью."""
+        pdf_path = generate_proposal_pdf(
+            order_id=555,
+            client_name="ООО Ритейл Групп",
+            project_type="Telegram Mini App (TMA)",
+            db_title="PostgreSQL",
+            extra_title="Оплата + Админка",
+            total_price=22500,
+            total_days=5,
+            output_dir=Path(self.temp_dir.name)
+        )
+        self.assertTrue(os.path.exists(pdf_path))
+        self.assertGreater(os.path.getsize(pdf_path), 5000)
+        with open(pdf_path, "rb") as f:
+            header = f.read(8)
+            self.assertEqual(header, b"%PDF-1.4")
 
 if __name__ == "__main__":
     unittest.main()

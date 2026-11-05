@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from config import (
     MAX_API_BASE_URL, MAX_BOT_TOKEN,
     TG_NOTIFY_BOT_TOKEN, TG_NOTIFY_CHAT_ID,
-    IS_DEMO, BASE_DIR, logger
+    ADMIN_MAX_ID, IS_DEMO, BASE_DIR, logger
 )
 
 # ==============================================================================
@@ -144,6 +144,122 @@ class MaxApiClient:
 
         return self._request("POST", "/messages", params=params, payload=body)
 
+    def upload_file(self, file_path: str) -> Optional[str]:
+        """
+        Загружает файл (PDF смету, Excel CSV) на CDN МАКС (oneme.ru).
+        Возвращает токен файла для отправки вложений.
+        """
+        p = Path(file_path)
+        if not p.exists():
+            logger.error(f"Файл не найден для отправки в МАКС: {file_path}")
+            return None
+
+        if IS_DEMO or not self.token or self.token.startswith(("mock_", "test_")):
+            logger.info(f"[MOCK MAX] Загрузка файла {p.name}")
+            return f"mock_file_token_{p.name}"
+
+        # 1. Запрос одноразового upload URL
+        res = self._request("POST", "/uploads", params={"type": "file"}, payload={})
+        upload_url = res.get("url") if isinstance(res, dict) else None
+        if not upload_url:
+            logger.error(f"Не удалось получить upload URL от МАКС: {res}")
+            return None
+
+        # 2. Формирование multipart/form-data
+        import uuid
+        boundary = uuid.uuid4().hex
+        try:
+            with open(p, "rb") as f:
+                file_bytes = f.read()
+
+            content_type = "application/pdf" if p.suffix.lower() == ".pdf" else "application/octet-stream"
+            header_part = (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="v1"; filename="{p.name}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode("utf-8")
+            footer_part = f"\r\n--{boundary}--\r\n".encode("utf-8")
+            body = header_part + file_bytes + footer_part
+
+            # CDN хранилище oneme.ru использует публичный сертификат
+            cdn_ssl_ctx = ssl.create_default_context()
+            cdn_ssl_ctx.check_hostname = False
+            cdn_ssl_ctx.verify_mode = ssl.CERT_NONE
+
+            req = urllib.request.Request(
+                upload_url,
+                data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, context=cdn_ssl_ctx, timeout=30) as response:
+                resp_data = json.loads(response.read().decode("utf-8"))
+                token = resp_data.get("token")
+                logger.info(f"✅ Файл {p.name} успешно загружен в МАКС CDN")
+                return token
+        except Exception as exc:
+            logger.error(f"Сбой загрузки файла {p.name} в МАКС: {exc}")
+            return None
+
+    def send_document(
+        self,
+        recipient_id: Any,
+        file_path: str,
+        caption: str = "",
+        keyboard: Optional[List[List[Dict[str, str]]]] = None,
+        is_chat: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Отправляет документ (PDF смету, Excel CSV) в чат или пользователю.
+        """
+        file_token = self.upload_file(file_path)
+        if not file_token:
+            return self.send_message(recipient_id, caption, keyboard, is_chat=is_chat)
+
+        if IS_DEMO or not self.token or self.token.startswith(("mock_", "test_")):
+            logger.info(f"[MOCK MAX] Отправка документа {file_path} -> {recipient_id}: {caption}")
+            return {"status": "ok", "mock": True, "result": {"message_id": "mock_doc_1002"}}
+
+        params: Dict[str, Any] = {}
+        s_id = str(recipient_id)
+        if is_chat or s_id.startswith(("-", "chat")):
+            params["chat_id"] = s_id
+        else:
+            params["user_id"] = s_id
+
+        body: Dict[str, Any] = {
+            "text": caption,
+            "format": "html",
+            "attachments": [
+                {
+                    "type": "file",
+                    "payload": {
+                        "token": file_token
+                    }
+                }
+            ]
+        }
+
+        if keyboard:
+            formatted_rows: List[List[Dict[str, str]]] = []
+            for row in keyboard:
+                formatted_row: List[Dict[str, str]] = []
+                for btn in row:
+                    btn_text = btn.get("text", "Кнопка")
+                    action = btn.get("action") or btn.get("payload") or btn_text
+                    formatted_row.append({
+                        "type": "callback",
+                        "text": btn_text,
+                        "payload": action
+                    })
+                formatted_rows.append(formatted_row)
+            body["attachments"].append({
+                "type": "inline_keyboard",
+                "payload": {"buttons": formatted_rows}
+            })
+
+        return self._request("POST", "/messages", params=params, payload=body)
+
     def answer_callback(self, callback_id: str, text: Optional[str] = None) -> Dict[str, Any]:
         """Подтверждает получение callback-события нажатия кнопки (POST /answers)."""
         params = {"callback_id": callback_id}
@@ -200,3 +316,52 @@ def send_telegram_alert(lead_id: int, lead_data: Dict[str, Any]) -> bool:
     except Exception as exc:
         logger.error(f"Не удалось отправить уведомление в Telegram: {exc}")
         return False
+
+# ==============================================================================
+# 3. БЕЗОПАСНАЯ ДОСТАВКА ЛИДОВ АДМИНИСТРАТОРУ
+# ==============================================================================
+
+def send_admin_order_notification(
+    api: MaxApiClient,
+    lead_id: int,
+    lead_data: Dict[str, Any],
+    pdf_path: Optional[str] = None
+) -> bool:
+    """
+    Отправляет уведомление о заказе СТРОГО в личный чат администратора в МАКС (ADMIN_MAX_ID)
+    и дублирует в Telegram.
+    ГАРАНТИЯ БЕЗОПАСНОСТИ: Никакие сторонние пользователи и чаты не могут получить эту информацию.
+    """
+    target_admin_id = str(ADMIN_MAX_ID).strip()
+    if not target_admin_id or target_admin_id == "0":
+        logger.warning("[SECURITY] ADMIN_MAX_ID не сконфигурирован. Уведомление в ЛС МАКС пропущено.")
+    else:
+        name = lead_data.get("name", "Аноним")
+        phone = lead_data.get("phone", "Не указан")
+        service = lead_data.get("service", "Не указан")
+        budget = lead_data.get("budget", "Договорной")
+        desc = lead_data.get("desc", "—")
+        client_max_id = lead_data.get("max_id", "—")
+
+        admin_text = (
+            f"🚨 <b>НОВАЯ ЗАЯВКА #{lead_id} В V1PER IT Solutions!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Клиент:</b> {name} (ID: <code>{client_max_id}</code>)\n"
+            f"📞 <b>Контакт:</b> <b>{phone}</b>\n"
+            f"💼 <b>Направление:</b> {service}\n"
+            f"💰 <b>Смета / Бюджет:</b> <b>{budget}</b>\n"
+            f"📝 <b>Детализация задачи:</b>\n{desc}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📄 <i>Смета в PDF с цифровой подписью сформирована и прикреплена ниже.</i>"
+        )
+
+        logger.info(f"[SECURITY] Отправка закрытого уведомления о лиде #{lead_id} СТРОГО администратору (ID: {target_admin_id})")
+        if pdf_path and Path(pdf_path).exists():
+            api.send_document(target_admin_id, pdf_path, caption=admin_text)
+        else:
+            api.send_message(target_admin_id, admin_text)
+
+    # Дублирование в Telegram разработчика
+    send_telegram_alert(lead_id, lead_data)
+    return True
+

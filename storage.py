@@ -9,6 +9,7 @@
 import sqlite3
 import csv
 import json
+import re
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from config import DATABASE_PATH, EXPORTS_DIR, logger
@@ -162,3 +163,69 @@ def export_leads_to_csv(db_path: str = DATABASE_PATH) -> str:
 
     logger.info(f"Экспорт завершен: {export_file} (Всего записей: {len(rows)})")
     return str(export_file)
+
+# ==============================================================================
+# 4. СТАТИСТИКА И ЗАПРОСЫ ДЛЯ АДМИН-ПАНЕЛИ
+# ==============================================================================
+
+def get_admin_stats(db_path: str = DATABASE_PATH) -> Dict[str, Any]:
+    """Собирает ключевые бизнес-метрики и статистику для закрытой админ-панели."""
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM commercial_leads")
+        total_leads = cursor.fetchone()[0]
+
+        today_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        cursor.execute("SELECT COUNT(*) FROM commercial_leads WHERE created_at LIKE ?", (f"{today_prefix}%",))
+        today_leads = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM conversation_states WHERE step != 'idle'")
+        active_dialogs = cursor.fetchone()[0]
+
+        cursor.execute("SELECT budget_range FROM commercial_leads")
+        rows = cursor.fetchall()
+
+    total_revenue = 0
+    for (b_str,) in rows:
+        if not b_str:
+            continue
+        nums = re.findall(r"\d+", b_str.replace(" ", "").replace(",", ""))
+        if nums:
+            try:
+                total_revenue += int(nums[0])
+            except ValueError:
+                pass
+
+    avg_check = (total_revenue // total_leads) if total_leads > 0 else 0
+
+    return {
+        "total_leads": total_leads,
+        "today_leads": today_leads,
+        "active_dialogs": active_dialogs,
+        "total_revenue": total_revenue,
+        "avg_check": avg_check
+    }
+
+def get_recent_leads(limit: int = 5, db_path: str = DATABASE_PATH) -> List[Dict[str, Any]]:
+    """Возвращает последние N поступивших заявок для админ-панели."""
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, max_user_id, user_name, phone, service_type, budget_range, created_at
+            FROM commercial_leads ORDER BY id DESC LIMIT ?
+        """, (limit,))
+        rows = cursor.fetchall()
+
+    leads = []
+    for r in rows:
+        leads.append({
+            "id": r[0],
+            "max_user_id": r[1],
+            "user_name": r[2],
+            "phone": r[3],
+            "service_type": r[4],
+            "budget_range": r[5],
+            "created_at": r[6]
+        })
+    return leads
+

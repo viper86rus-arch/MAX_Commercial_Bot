@@ -54,10 +54,24 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
 # Режим работы (production, mock, demo)
 IS_DEMO = "--demo" in sys.argv or os.getenv("DEMO_MODE", "0") == "1"
 
-# База данных
+# Администратор бота в МАКС (закрытая админ-панель и личные уведомления)
+ADMIN_MAX_ID = os.getenv("ADMIN_MAX_ID", "31469506").strip()
+
+# Каталоги хранения файлов и экспортов
 DATABASE_PATH = str(DATA_DIR / "max_bot.db")
 EXPORTS_DIR = BASE_DIR / "exports"
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+PROPOSALS_DIR = BASE_DIR / "proposals"
+PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Реквизиты самозанятого для генерации PDF-смет и договоров-оферт
+SELLER_NAME = os.getenv("SELLER_NAME", "V1PER (Самозанятый исполнитель)")
+SELLER_INN = os.getenv("SELLER_INN", "860200000000")
+BANK_NAME = os.getenv("BANK_NAME", "АО Т-Банк")
+BANK_BIK = os.getenv("BANK_BIK", "044525974")
+BANK_CORR = os.getenv("BANK_CORR", "30101810145250000974")
+BANK_ACCOUNT = os.getenv("BANK_ACCOUNT", "40817810000000000000")
+PAYMENT_SBP = os.getenv("PAYMENT_SBP", "+79000000000")
 
 # ==============================================================================
 # 3. ЛОГИРОВАНИЕ
