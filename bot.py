@@ -26,15 +26,18 @@ from max_api import MaxApiClient, send_telegram_alert
 # ==============================================================================
 
 WELCOME_TEXT = (
-    "👋 <b>Добро пожаловать в студию автоматизации V1PER!</b>\n\n"
-    "Я официальный виртуальный ассистент инженерной студии. "
-    "Помогу рассчитать смету, ознакомиться с портфолио и оформить заявку на разработку.\n\n"
+    "👋 <b>Добро пожаловать в V1PER IT Solutions!</b>\n\n"
+    "Студия промышленной разработки и автоматизации бизнес-процессов.\n\n"
+    "Реализуем проекты по вашему готовому ТЗ либо <b>поможем грамотно составить и декомпозировать техзадание с нуля</b> под ваши бизнес-задачи.\n\n"
+    "• Рассчитаем прозрачную смету и сроки\n"
+    "• Покажем реальные кейсы и чистую архитектуру\n"
+    "• Примем задачу в работу 24/7\n\n"
     "Выберите интересующий раздел:"
 )
 
 MAIN_KEYBOARD = [
     [{"text": "💼 Услуги и прайс", "action": "btn_services"},
-     {"text": "🧮 Калькулятор сметы", "action": "btn_calc"}],
+     {"text": "🧮 Калькулятор", "action": "btn_calc"}],
     [{"text": "📂 Наше портфолио", "action": "btn_portfolio"},
      {"text": "📩 Оставить заявку", "action": "btn_order"}],
     [{"text": "👤 Прямой контакт", "action": "btn_contact"}]
@@ -57,7 +60,7 @@ SERVICES_TEXT = (
 )
 
 PORTFOLIO_TEXT = (
-    "📂 <b>Флагманские проекты студии V1PER:</b>\n\n"
+    "📂 <b>Флагманские проекты V1PER IT Solutions:</b>\n\n"
     "• <b>Telegram Commercial Bot</b> — промышленный бот для бизнеса с генерацией счетов PDF и приемом оплат.\n"
     "• <b>CRM Group Manager</b> — микросервис создания и чистки проектных групп в Telegram (MTProto) и МАКС.\n"
     "• <b>Enterprise Web Scraper</b> — масштабируемый асинхронный сборщик данных с веб-дашбордом на FastAPI.\n"
@@ -66,9 +69,10 @@ PORTFOLIO_TEXT = (
 )
 
 CONTACT_TEXT = (
-    "👤 <b>Прямой контакт ведущего разработчика:</b>\n\n"
-    "• <b>Бренд:</b> V1PER (viper86rus-arch)\n"
+    "👤 <b>Прямой контакт ведущего инженера:</b>\n\n"
+    "• <b>Бренд:</b> V1PER IT Solutions (viper86rus-arch)\n"
     "• <b>Специализация:</b> Senior Python / Automation Engineer\n"
+    "• <b>Формат:</b> Разработка по готовому ТЗ или проектирование требований с нуля\n"
     "• <b>Статус:</b> Официальный самозанятый РФ (работа по договору / ЭДО / чеки)\n"
     "• <b>Гарантия:</b> 30 дней бесплатной технической поддержки на весь код."
 )
@@ -188,7 +192,7 @@ class BotEngine:
             return success_text
 
         # Калькулятор сметы
-        if text in ("🧮 Калькулятор сметы", "btn_calc"):
+        if text in ("🧮 Калькулятор", "🧮 Калькулятор сметы", "btn_calc"):
             calc_text = (
                 "🧮 <b>Экспресс-калькулятор стоимости:</b>\n\n"
                 "• Базовый чат-бот визитка: ~4 500 ₽ (1 день)\n"
@@ -292,8 +296,58 @@ def run_interactive_demo():
 # 5. ТОЧКА ВХОДА
 # ==============================================================================
 
+import time
+
+def run_polling(engine: BotEngine, api: MaxApiClient):
+    """Слушает события МАКС через официальный Long Polling (GET /updates)."""
+    logger.info("Запуск боевого слушателя МАКС Long Polling...")
+    me = api.get_me()
+    if isinstance(me, dict) and "user_id" in me:
+        logger.info(f"✅ Успешная авторизация бота: @{me.get('username')} ({me.get('first_name')}, ID: {me.get('user_id')})")
+    
+    marker = None
+    while True:
+        try:
+            updates, marker = api.get_updates(marker=marker, timeout=20)
+            for upd in updates:
+                upd_type = upd.get("update_type")
+                if upd_type == "message_created":
+                    msg = upd.get("message", {})
+                    sender = msg.get("sender", {})
+                    user_id = str(sender.get("user_id", ""))
+                    user_name = sender.get("name") or sender.get("first_name", "Пользователь")
+                    body = msg.get("body", {})
+                    text = body.get("text", "")
+                    if user_id and text:
+                        logger.info(f"[ВХОДЯЩЕЕ СООБЩЕНИЕ] от {user_name} ({user_id}): {text}")
+                        engine.process_incoming(user_id, text, user_name)
+                elif upd_type == "message_callback":
+                    cb = upd.get("callback", {})
+                    user = cb.get("user", {})
+                    user_id = str(user.get("user_id", ""))
+                    user_name = user.get("name") or user.get("first_name", "Пользователь")
+                    payload = cb.get("payload", "")
+                    cb_id = cb.get("callback_id")
+                    if cb_id:
+                        api.answer_callback(cb_id)
+                    if user_id and payload:
+                        logger.info(f"[НАЖАТИЕ КНОПКИ] от {user_name} ({user_id}): {payload}")
+                        engine.process_incoming(user_id, payload, user_name)
+                elif upd_type == "bot_started":
+                    user = upd.get("user", {})
+                    user_id = str(user.get("user_id", ""))
+                    user_name = user.get("name") or user.get("first_name", "Пользователь")
+                    logger.info(f"[СТАРТ БОТА] пользователь {user_name} ({user_id})")
+                    engine.process_incoming(user_id, "/start", user_name)
+        except KeyboardInterrupt:
+            logger.info("Остановка Long Polling...")
+            break
+        except Exception as e:
+            logger.error(f"Ошибка в цикле Long Polling: {e}")
+            time.sleep(2)
+
 def signal_handler(signum, frame):
-    logger.info("Получен сигнал завершения. Остановка сервера...")
+    logger.info("Получен сигнал завершения. Остановка бота...")
     sys.exit(130)
 
 def main():
@@ -306,18 +360,20 @@ def main():
 
     api = MaxApiClient()
     engine = BotEngine(api)
-    MaxWebhookHandler.engine = engine
 
-    server_address = (HOST, PORT)
-    httpd = HTTPServer(server_address, MaxWebhookHandler)
-    logger.info(f"Сервер бота МАКС запущен на http://{HOST}:{PORT}")
-    logger.info("Эндпоинты: GET /health | GET /export | POST /webhook")
-
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        logger.info("Сервер остановлен.")
-        sys.exit(130)
+    if "--webhook" in sys.argv:
+        MaxWebhookHandler.engine = engine
+        server_address = (HOST, PORT)
+        httpd = HTTPServer(server_address, MaxWebhookHandler)
+        logger.info(f"Сервер вебхуков МАКС запущен на http://{HOST}:{PORT}")
+        logger.info("Эндпоинты: GET /health | GET /export | POST /webhook")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            logger.info("Сервер остановлен.")
+            sys.exit(130)
+    else:
+        run_polling(engine, api)
 
 if __name__ == "__main__":
     main()
