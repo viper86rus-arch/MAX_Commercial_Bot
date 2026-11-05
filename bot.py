@@ -60,12 +60,20 @@ SERVICES_TEXT = (
 )
 
 PORTFOLIO_TEXT = (
-    "📂 <b>Флагманские проекты V1PER IT Solutions:</b>\n\n"
-    "• <b>Telegram Commercial Bot</b> — промышленный бот для бизнеса с генерацией счетов PDF и приемом оплат.\n"
-    "• <b>CRM Group Manager</b> — микросервис создания и чистки проектных групп в Telegram (MTProto) и МАКС.\n"
-    "• <b>Enterprise Web Scraper</b> — масштабируемый асинхронный сборщик данных с веб-дашбордом на FastAPI.\n"
-    "• <b>Wildberries Fast Scraper</b> — моментальный парсер товарных матриц в Excel (UTF-8 BOM).\n"
-    "• <b>Async TCP Scanner</b> — аудит сетевой безопасности и мониторинг портов промышленного уровня."
+    "📂 <b>Флагманские проекты V1PER IT Solutions (GitHub):</b>\n\n"
+    "1. 🎯 <b><a href=\"https://github.com/viper86rus-arch/Wildberries_Fast_Scraper\">Wildberries Fast Scraper</a></b>\n"
+    "   • Высокоскоростной парсер каталога WB без браузера. Расчёт цен с СПП (WB Кошелёк), остатки по РФ, экспорт в Excel (UTF-8 BOM).\n\n"
+    "2. ⚡ <b><a href=\"https://github.com/viper86rus-arch/Async_TCP_Scanner\">Async TCP Scanner</a></b>\n"
+    "   • Асинхронный сканер портов и аудит сетевой безопасности на Python asyncio. Захват баннеров служб (SSH/HTTP), контроль семафором.\n\n"
+    "3. 🌐 <b><a href=\"https://github.com/viper86rus-arch/Enterprise_Web_Scraper\">Enterprise Web Scraper</a></b>\n"
+    "   • Сбор динамических данных на Playwright в Stealth-режиме. Веб-панель управления на FastAPI и стриминг логов через WebSockets.\n\n"
+    "4. 🤖 <b><a href=\"https://github.com/viper86rus-arch/Telegram_Commercial_Bot\">Telegram Commercial Bot</a></b>\n"
+    "   • Платформа продаж для бизнеса: расчет сметы, векторный генератор A4 PDF со штампом ЭЦП (63-ФЗ), прием оплат и микро-CRM.\n\n"
+    "5. 🛍️ <b><a href=\"https://github.com/viper86rus-arch/Telegram_Commerce_MiniApp\">Telegram Commerce MiniApp</a></b>\n"
+    "   • Полнофункциональный интернет-магазин внутри мессенджера (TMA): витрина товаров, интерактивная корзина, оформление заказов и чеки.\n\n"
+    "6. 🏢 <b><a href=\"https://github.com/viper86rus-arch/CRM_Group_Manager\">CRM Group Manager</a></b>\n"
+    "   • Микросервис оркестрации проектных групп в Telegram (MTProto) и МАКС по вебхукам корпоративных CRM (Битрикс24 / amoCRM).\n\n"
+    "🔗 <i>Исходный код всех решений открыт на GitHub:</i> <a href=\"https://github.com/viper86rus-arch\">github.com/viper86rus-arch</a>"
 )
 
 CONTACT_TEXT = (
