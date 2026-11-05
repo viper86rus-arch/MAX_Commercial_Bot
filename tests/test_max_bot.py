@@ -114,5 +114,68 @@ class TestMaxCommercialBot(unittest.TestCase):
         reply_final = self.engine.process_incoming(uid, "@konstantin_delivery", name)
         self.assertIn("успешно принята", reply_final)
 
+    def test_interactive_calculator_full_flow(self):
+        """Проверяет пошаговый квиз-калькулятор и оформление заказа по смете."""
+        uid = "calc_client_101"
+        name = "Алексей"
+
+        # Шаг 1: Старт калькулятора по клику
+        reply_step1 = self.engine.process_incoming(uid, "btn_calc", name)
+        self.assertIn("Шаг 1 из 3", reply_step1)
+        self.assertIn("Выберите основное направление", reply_step1)
+
+        # Шаг 2: Выбор чат-бота
+        reply_step2 = self.engine.process_incoming(uid, "calc_s2:bot", name)
+        self.assertIn("Шаг 2 из 3", reply_step2)
+        self.assertIn("Чат-бот", reply_step2)
+        self.assertIn("базы данных", reply_step2)
+
+        # Шаг 3: Выбор базы данных (Да, нужна)
+        reply_step3 = self.engine.process_incoming(uid, "calc_s3:bot:yes", name)
+        self.assertIn("Шаг 3 из 3", reply_step3)
+        self.assertIn("бизнес-модули", reply_step3)
+
+        # Расчет сметы: Оплата + Админка
+        reply_res = self.engine.process_incoming(uid, "calc_res:bot:yes:all", name)
+        self.assertIn("ИТОГОВЫЙ РАСЧЁТ СМЕТЫ", reply_res)
+        self.assertIn("14,000 ₽", reply_res)
+        self.assertIn("4 дн.", reply_res)
+
+        # Переход к оформлению по смете
+        reply_ord = self.engine.process_incoming(uid, "calc_ord:bot:yes:all:14000:4", name)
+        self.assertIn("Оформление заказа по смете (14,000 ₽)", reply_ord)
+        self.assertIn("Укажите ваш контакт для связи", reply_ord)
+
+        # Ввод контакта
+        reply_done = self.engine.process_incoming(uid, "+79997776655", name)
+        self.assertIn("успешно принята", reply_done)
+
+        # Проверка сохранения в SQLite
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT user_name, service_type, budget_range, phone, description FROM commercial_leads WHERE max_user_id=?", (uid,))
+            row = cursor.fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], name)
+            self.assertIn("Чат-бот", row[1])
+            self.assertIn("14,000 ₽", row[2])
+            self.assertEqual(row[3], "+79997776655")
+            self.assertIn("Заказ по смете калькулятора", row[4])
+
+    def test_interactive_calculator_tz_flow(self):
+        """Проверяет сценарий калькулятора для составления ТЗ."""
+        uid = "tz_client_202"
+        name = "Михаил"
+
+        # Шаг 2 для ТЗ
+        reply_tz_s2 = self.engine.process_incoming(uid, "calc_s2:tz", name)
+        self.assertIn("Шаг 2 из 2", reply_tz_s2)
+        self.assertIn("Инженерное ТЗ с нуля", reply_tz_s2)
+
+        # Итог для базового ТЗ
+        reply_tz_res = self.engine.process_incoming(uid, "calc_res:tz:basic:none", name)
+        self.assertIn("ИТОГОВЫЙ РАСЧЁТ СМЕТЫ", reply_tz_res)
+        self.assertIn("2,500 ₽", reply_tz_res)
+
 if __name__ == "__main__":
     unittest.main()

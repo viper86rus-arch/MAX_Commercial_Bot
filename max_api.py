@@ -147,7 +147,7 @@ class MaxApiClient:
     def answer_callback(self, callback_id: str, text: Optional[str] = None) -> Dict[str, Any]:
         """Подтверждает получение callback-события нажатия кнопки (POST /answers)."""
         params = {"callback_id": callback_id}
-        payload = {"notification": text} if text else None
+        payload = {"notification": text} if text else {}
         return self._request("POST", "/answers", params=params, payload=payload)
 
 # ==============================================================================

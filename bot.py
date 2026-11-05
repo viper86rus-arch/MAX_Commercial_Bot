@@ -94,6 +94,32 @@ CONTACT_TEXT = (
 )
 
 # ==============================================================================
+# КОНФИГУРАЦИЯ ИНТЕРАКТИВНОГО КАЛЬКУЛЯТОРА СМЕТЫ
+# ==============================================================================
+
+CALCULATOR_CONFIG = {
+    "types": {
+        "bot": {"title": "🤖 Чат-бот (Telegram / МАКС)", "price": 3500, "days": 1},
+        "parser": {"title": "📊 Парсер данных / WB / Ozon", "price": 4500, "days": 1},
+        "crm": {"title": "🏢 CRM-интеграция / Микросервис", "price": 6500, "days": 2},
+        "miniapp": {"title": "🛍️ Telegram Mini App (TMA)", "price": 15000, "days": 3},
+        "tz": {"title": "📝 Инженерное ТЗ с нуля", "price": 2500, "days": 1}
+    },
+    "db": {
+        "yes": {"title": "🗄 Да, с базой данных (PostgreSQL / SQLite)", "price": 3000, "days": 1},
+        "no": {"title": "❌ Без базы данных (только логика/API)", "price": 0, "days": 0},
+        "basic": {"title": "📄 Базовое ТЗ (БД, API, User Flow)", "price": 0, "days": 0},
+        "corp": {"title": "📑 Корпоративное ТЗ (C4, Swagger, ГОСТ)", "price": 2500, "days": 1}
+    },
+    "extra": {
+        "pay": {"title": "💳 Онлайн-оплата (ЮKassa / СБП / Stars)", "price": 4500, "days": 1},
+        "admin": {"title": "📊 Панель управления и рассылки", "price": 4000, "days": 1},
+        "all": {"title": "🚀 Всё вместе: Оплата + Админка", "price": 7500, "days": 2},
+        "none": {"title": "⏩ Без доп. модулей", "price": 0, "days": 0}
+    }
+}
+
+# ==============================================================================
 # 2. ОБРАБОТЧИК СООБЩЕНИЙ И FSM (State Machine)
 # ==============================================================================
 
@@ -103,6 +129,153 @@ class BotEngine:
     def __init__(self, api_client: MaxApiClient, db_path: Optional[str] = None):
         self.api = api_client
         self.db_path = db_path or DATABASE_PATH
+
+    def _handle_calculator(self, user_id: str, text: str, user_name: str = "") -> str:
+        """Интерактивный пошаговый квиз-калькулятор стоимости и сроков проекта."""
+        # Шаг 1: Выбор направления
+        if text in ("🧮 Калькулятор", "🧮 Калькулятор сметы", "btn_calc", "/calc", "calc_step1"):
+            prompt = (
+                "🧮 <b>ИНТЕРАКТИВНЫЙ КАЛЬКУЛЯТОР СМЕТЫ (Шаг 1 из 3):</b>\n\n"
+                "Выберите основное направление вашего проекта:"
+            )
+            keyboard = [
+                [{"text": "🤖 Чат-бот (от 3 500 ₽)", "action": "calc_s2:bot"}],
+                [{"text": "📊 Парсер данных (от 4 500 ₽)", "action": "calc_s2:parser"}],
+                [{"text": "🏢 CRM-интеграция (от 6 500 ₽)", "action": "calc_s2:crm"}],
+                [{"text": "🛍️ Mini App TMA (от 15 000 ₽)", "action": "calc_s2:miniapp"}],
+                [{"text": "📝 Разработка ТЗ (от 2 500 ₽)", "action": "calc_s2:tz"}],
+                [{"text": "◀️ В главное меню", "action": "btn_menu"}]
+            ]
+            self.api.send_message(user_id, prompt, keyboard)
+            return prompt
+
+        # Шаг 2: База данных или опции ТЗ
+        if text.startswith("calc_s2:"):
+            parts = text.split(":")
+            q_type = parts[1]
+            t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
+
+            if q_type == "tz":
+                prompt = (
+                    "🧮 <b>ИНТЕРАКТИВНЫЙ КАЛЬКУЛЯТОР СМЕТЫ (Шаг 2 из 2):</b>\n\n"
+                    f"Направление: <b>{t_info['title']}</b>\n\n"
+                    "Выберите требуемый уровень детализации техзадания:"
+                )
+                keyboard = [
+                    [{"text": "📄 Базовое ТЗ (БД, API, User Flow) — 2 500 ₽", "action": "calc_res:tz:basic:none"}],
+                    [{"text": "📑 Enterprise ТЗ (C4, Swagger, ГОСТ) — 5 000 ₽", "action": "calc_res:tz:corp:none"}],
+                    [{"text": "◀️ Назад", "action": "calc_step1"}, {"text": "◀️ В меню", "action": "btn_menu"}]
+                ]
+            else:
+                prompt = (
+                    "🧮 <b>ИНТЕРАКТИВНЫЙ КАЛЬКУЛЯТОР СМЕТЫ (Шаг 2 из 3):</b>\n\n"
+                    f"Выбрано: <b>{t_info['title']}</b>\n\n"
+                    "Требуется ли подключение базы данных (PostgreSQL / SQLite) для хранения пользователей, заказов или истории?"
+                )
+                keyboard = [
+                    [{"text": "🗄 Да, нужна база (+3 000 ₽)", "action": f"calc_s3:{q_type}:yes"}],
+                    [{"text": "❌ Нет, без базы данных (0 ₽)", "action": f"calc_s3:{q_type}:no"}],
+                    [{"text": "◀️ Назад", "action": "calc_step1"}, {"text": "◀️ В меню", "action": "btn_menu"}]
+                ]
+            self.api.send_message(user_id, prompt, keyboard)
+            return prompt
+
+        # Шаг 3: Дополнительные бизнес-модули
+        if text.startswith("calc_s3:"):
+            parts = text.split(":")
+            q_type = parts[1]
+            q_db = parts[2]
+            t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
+            db_info = CALCULATOR_CONFIG["db"].get(q_db, CALCULATOR_CONFIG["db"]["no"])
+
+            prompt = (
+                "🧮 <b>ИНТЕРАКТИВНЫЙ КАЛЬКУЛЯТОР СМЕТЫ (Шаг 3 из 3):</b>\n\n"
+                f"Выбрано: <b>{t_info['title']}</b>\n"
+                f"База данных: <b>{db_info['title']}</b>\n\n"
+                "Нужны ли дополнительные бизнес-модули?"
+            )
+            keyboard = [
+                [{"text": "💳 Онлайн-оплата (+4 500 ₽)", "action": f"calc_res:{q_type}:{q_db}:pay"}],
+                [{"text": "📊 Админка и рассылки (+4 000 ₽)", "action": f"calc_res:{q_type}:{q_db}:admin"}],
+                [{"text": "🚀 Всё вместе: Оплата + Админка (+7 500 ₽)", "action": f"calc_res:{q_type}:{q_db}:all"}],
+                [{"text": "⏩ Без доп. модулей (0 ₽)", "action": f"calc_res:{q_type}:{q_db}:none"}],
+                [{"text": "◀️ Назад", "action": f"calc_s2:{q_type}"}, {"text": "◀️ В меню", "action": "btn_menu"}]
+            ]
+            self.api.send_message(user_id, prompt, keyboard)
+            return prompt
+
+        # Итоговый расчет сметы
+        if text.startswith("calc_res:"):
+            parts = text.split(":")
+            q_type, q_db, q_extra = parts[1], parts[2], parts[3]
+            t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
+            db_info = CALCULATOR_CONFIG["db"].get(q_db, CALCULATOR_CONFIG["db"]["no"])
+            ext_info = CALCULATOR_CONFIG["extra"].get(q_extra, CALCULATOR_CONFIG["extra"]["none"])
+
+            total_price = t_info["price"] + db_info["price"] + ext_info["price"]
+            total_days = max(1, t_info["days"] + db_info["days"] + ext_info["days"])
+
+            prompt = (
+                "🧾 <b>ИТОГОВЫЙ РАСЧЁТ СМЕТЫ ПРОЕКТА:</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"📌 <b>Направление:</b> {t_info['title']}\n"
+                f"🗄 <b>База данных:</b> {db_info['title']}\n"
+                f"⚙️ <b>Дополнения:</b> {ext_info['title']}\n\n"
+                f"💰 <b>Расчётная стоимость:</b> <b>{total_price:,} ₽</b>\n"
+                f"⏱ <b>Срок разработки:</b> <b>{total_days} дн.</b>\n"
+                f"🛡 <b>Гарантия:</b> 30 дней бесплатной техподдержки\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "<i>Нажмите «Оформить заказ», чтобы зафиксировать смету и сразу передать задачу в работу:</i>"
+            )
+            keyboard = [
+                [{"text": f"✅ Заказать смету ({total_price:,} ₽)", "action": f"calc_ord:{q_type}:{q_db}:{q_extra}:{total_price}:{total_days}"}],
+                [{"text": "🔄 Пересчитать заново", "action": "calc_step1"}],
+                [{"text": "◀️ В главное меню", "action": "btn_menu"}]
+            ]
+            self.api.send_message(user_id, prompt, keyboard)
+            return prompt
+
+        # Оформление заказа по смете -> переход к вводу контакта
+        if text.startswith("calc_ord:"):
+            parts = text.split(":")
+            q_type, q_db, q_extra = parts[1], parts[2], parts[3]
+            total_price = int(parts[4])
+            total_days = int(parts[5])
+
+            t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
+            db_info = CALCULATOR_CONFIG["db"].get(q_db, CALCULATOR_CONFIG["db"]["no"])
+            ext_info = CALCULATOR_CONFIG["extra"].get(q_extra, CALCULATOR_CONFIG["extra"]["none"])
+
+            calc_session = {
+                "name": user_name or "Пользователь МАКС",
+                "max_id": user_id,
+                "service": t_info["title"],
+                "budget": f"{total_price:,} ₽ ({total_days} дн.)",
+                "desc": (
+                    f"Заказ по смете калькулятора:\n"
+                    f"• Проект: {t_info['title']}\n"
+                    f"• БД: {db_info['title']}\n"
+                    f"• Дополнения: {ext_info['title']}\n"
+                    f"• Срок: {total_days} дн."
+                )
+            }
+            set_user_state(user_id, "ask_contact", calc_session, self.db_path)
+
+            prompt = (
+                f"📋 <b>Оформление заказа по смете ({total_price:,} ₽):</b>\n\n"
+                f"• <b>Проект:</b> {t_info['title']}\n"
+                f"• <b>Конфигурация:</b> {db_info['title']}, {ext_info['title']}\n"
+                f"• <b>Срок:</b> ~{total_days} дн.\n\n"
+                "📞 <b>Укажите ваш контакт для связи</b> (номер телефона, ник в Telegram / МАКС или email), "
+                "и ведущий инженер свяжется с вами в течение 15 минут для подтверждения сметы:"
+            )
+            keyboard = [
+                [{"text": "◀️ Отмена / В главное меню", "action": "btn_menu"}]
+            ]
+            self.api.send_message(user_id, prompt, keyboard)
+            return prompt
+
+        return self._handle_calculator(user_id, "calc_step1", user_name)
 
     def process_incoming(self, user_id: str, text: str, user_name: str = "") -> str:
         """Обрабатывает входящее действие пользователя и возвращает ответ."""
@@ -114,6 +287,10 @@ class BotEngine:
             clear_user_state(user_id, self.db_path)
             self.api.send_message(user_id, WELCOME_TEXT, MAIN_KEYBOARD)
             return WELCOME_TEXT
+
+        # Интерактивный калькулятор сметы (пошаговый квиз-конфигуратор)
+        if text in ("🧮 Калькулятор", "🧮 Калькулятор сметы", "btn_calc", "/calc") or text.startswith(("calc_", "calc_s2:", "calc_s3:", "calc_res:", "calc_ord:")):
+            return self._handle_calculator(user_id, text, user_name)
 
         # Навигация по кнопкам меню
         if text in ("💼 Услуги и прайс", "btn_services"):
@@ -211,20 +388,6 @@ class BotEngine:
             self.api.send_message(user_id, success_text, MAIN_KEYBOARD)
             return success_text
 
-        # Калькулятор сметы
-        if text in ("🧮 Калькулятор", "🧮 Калькулятор сметы", "btn_calc"):
-            calc_text = (
-                "🧮 <b>Экспресс-калькулятор стоимости (2026):</b>\n\n"
-                "• 📝 Составление детального ТЗ проекта: ~2 500 ₽ (24 часа)\n"
-                "• 🤖 Бот-визитка / приём заявок: ~3 500 – 4 500 ₽ (1-2 дня)\n"
-                "• 💳 Бот с корзиной, оплатой и базой данных: ~8 000 – 10 000 ₽ (2-3 дня)\n"
-                "• 📊 Парсер Wildberries / Ozon в Excel: ~5 000 – 7 000 ₽ (1-2 дня)\n"
-                "• 🏢 Микросервис управления чатами / CRM: ~6 500 – 9 000 ₽ (2 дня)\n"
-                "• 🛍️ Telegram Mini App (магазин в мессенджере): ~18 000 ₽ (3-4 дня)\n\n"
-                "💡 <i>Хотите точный расчёт сметы под вашу задачу? Нажмите «📩 Оставить заявку»!</i>"
-            )
-            self.api.send_message(user_id, calc_text, MAIN_KEYBOARD)
-            return calc_text
 
         # Эхо / fallback
         fallback = "Извините, не распознал команду. Нажмите /start для вызова главного меню."
