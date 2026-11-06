@@ -19,7 +19,7 @@
 > - 📊 **Аналитика и администрирование:** изолированная панель с конверсиями и автоматический экспорт в CRM и Excel.
 > - 🛡️ **Инфраструктура:** запуск на защищённом российском сервере с мониторингом 24/7 и технической поддержкой.
 >
-> 📩 **Заказать адаптацию и запуск:** [Создать заявку (Issue)](https://github.com/viper86rus-arch/MAX_Commercial_Bot/issues) или написать в [Профиль студии V1PER](https://github.com/viper86rus-arch).
+> 📩 **Заказать адаптацию и запуск:** [Заказать на Kwork (Безопасная сделка)](https://kwork.ru/user/V1PER86RUS) • [Создать заявку (Issue)](https://github.com/viper86rus-arch/MAX_Commercial_Bot/issues) • [Профиль студии](https://github.com/viper86rus-arch)
 
 ---
 
