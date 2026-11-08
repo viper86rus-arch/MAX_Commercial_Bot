@@ -1,13 +1,13 @@
 # 🤖 V1PER IT Solutions | Enterprise Commercial Messenger MAX Bot & Sales Platform
 
-[![Tests](https://img.shields.io/badge/Tests-9%2F9%20Passed%20(100%25)-brightgreen.svg)](tests/)
-[![Security Audit: Hardened](https://img.shields.io/badge/Security%20Audit-0%20Vulnerabilities%20(Hardened)-brightgreen.svg)](audit_stress_test.py)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Studio](https://img.shields.io/badge/Studio-V1PER_IT_Solutions-emerald.svg)]()
-[![Architecture: Clean Zero--Pip](https://img.shields.io/badge/Architecture-Clean%20Zero--Pip-blueviolet.svg)]()
-[![Platform: MAX 2026](https://img.shields.io/badge/Platform-MAX%20API%20v2-purple.svg)](https://dev.max.ru)
-[![Digital Stamp](https://img.shields.io/badge/Electronic_Signature-63--FZ%20Compliant-red.svg)](https://github.com/viper86rus-arch/MAX_Commercial_Bot)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://badgen.net/badge/Tests/9%2F9%20Passed/green)](tests/)
+[![Security Audit: Hardened](https://badgen.net/badge/Security%20Audit/6%2F6%20Hardened/green)](audit_stress_test.py)
+[![Python: 3.10+](https://badgen.net/badge/Python/3.10+/blue?icon=python)](https://www.python.org/)
+[![Studio](https://badgen.net/badge/Studio/V1PER%20IT%20Solutions/cyan)](https://github.com/viper86rus-arch)
+[![Architecture: Clean Zero--Pip](https://badgen.net/badge/Architecture/Clean%20Zero-Pip/purple)](https://github.com/viper86rus-arch/MAX_Commercial_Bot)
+[![Platform: MAX 2026](https://badgen.net/badge/Platform/MAX%20API%20v2/purple)](https://max.mail.ru/)
+[![Digital Stamp](https://badgen.net/badge/Electronic%20Signature/63-FZ%20Compliant/red)](pdf_generator.py)
+[![License: MIT](https://badgen.net/badge/license/MIT/yellow)](LICENSE)
 
 > **Автономный промышленный коммерческий чат-бот студии V1PER IT Solutions для официальной российской платформы Мессенджер МАКС (`platform-api2.max.ru`).**  
 > Полный цикл автоматизации первичных продаж: 3-шаговый интерактивный калькулятор сметы, автоматическая генерация официальных коммерческих предложений в A4 PDF с векторным штампом усиленной квалифицированной электронной подписи (63-ФЗ РФ), изолированная панель администратора (`/admin`) со сквозной воронкой и выгрузкой в Excel CSV, и защищённые push-уведомления инженеру.
