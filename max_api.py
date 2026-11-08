@@ -36,8 +36,6 @@ class MaxApiClient:
             self.ssl_ctx = ssl.create_default_context(cafile=str(ca_path))
         else:
             self.ssl_ctx = ssl.create_default_context()
-            self.ssl_ctx.check_hostname = False
-            self.ssl_ctx.verify_mode = ssl.CERT_NONE
 
     def _headers(self) -> Dict[str, str]:
         # Официальный формат авторизации МАКС: сырой токен без префикса Bearer
@@ -181,10 +179,8 @@ class MaxApiClient:
             footer_part = f"\r\n--{boundary}--\r\n".encode("utf-8")
             body = header_part + file_bytes + footer_part
 
-            # CDN хранилище oneme.ru использует публичный сертификат
+            # CDN хранилище oneme.ru использует публичный сертификат с проверкой подлинности
             cdn_ssl_ctx = ssl.create_default_context()
-            cdn_ssl_ctx.check_hostname = False
-            cdn_ssl_ctx.verify_mode = ssl.CERT_NONE
 
             req = urllib.request.Request(
                 upload_url,

@@ -6,10 +6,12 @@
 # Лицензия: MIT License (2026)
 # ==============================================================================
 
+import os
 import sys
 import signal
 import json
 import re
+import urllib.parse
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Any, List, Optional
@@ -24,6 +26,13 @@ from storage import (
 )
 from max_api import MaxApiClient, send_telegram_alert, send_admin_order_notification
 from pdf_generator import generate_proposal_pdf
+
+
+def mask_pii(text: str) -> str:
+    """Маскирует персональные данные (номера телефонов) в логах (CWE-532)."""
+    if not text:
+        return ""
+    return re.sub(r"(\+?[78])(\d{3})\d{3}(\d{2,4})", r"\1\2***\3", str(text))
 
 # ==============================================================================
 # 1. ТЕКСТЫ И ШАБЛОНЫ ДИАЛОГОВ
@@ -156,6 +165,8 @@ class BotEngine:
         # Шаг 2: База данных или опции ТЗ
         if text.startswith("calc_s2:"):
             parts = text.split(":")
+            if len(parts) < 2 or not parts[1]:
+                return self._handle_calculator(user_id, "calc_step1", user_name)
             q_type = parts[1]
             t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
 
@@ -187,6 +198,8 @@ class BotEngine:
         # Шаг 3: Дополнительные бизнес-модули
         if text.startswith("calc_s3:"):
             parts = text.split(":")
+            if len(parts) < 3:
+                return self._handle_calculator(user_id, "calc_step1", user_name)
             q_type = parts[1]
             q_db = parts[2]
             t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
@@ -211,6 +224,8 @@ class BotEngine:
         # Итоговый расчет сметы
         if text.startswith("calc_res:"):
             parts = text.split(":")
+            if len(parts) < 4:
+                return self._handle_calculator(user_id, "calc_step1", user_name)
             q_type, q_db, q_extra = parts[1], parts[2], parts[3]
             t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
             db_info = CALCULATOR_CONFIG["db"].get(q_db, CALCULATOR_CONFIG["db"]["no"])
@@ -242,13 +257,17 @@ class BotEngine:
         # Оформление заказа по смете -> переход к вводу контакта
         if text.startswith("calc_ord:"):
             parts = text.split(":")
+            if len(parts) < 4:
+                return self._handle_calculator(user_id, "calc_step1", user_name)
             q_type, q_db, q_extra = parts[1], parts[2], parts[3]
-            total_price = int(parts[4])
-            total_days = int(parts[5])
 
             t_info = CALCULATOR_CONFIG["types"].get(q_type, CALCULATOR_CONFIG["types"]["bot"])
             db_info = CALCULATOR_CONFIG["db"].get(q_db, CALCULATOR_CONFIG["db"]["no"])
             ext_info = CALCULATOR_CONFIG["extra"].get(q_extra, CALCULATOR_CONFIG["extra"]["none"])
+
+            # Защита от Price Tampering (CWE-472): расчет стоимости и сроков строго на сервере
+            total_price = t_info["price"] + db_info["price"] + ext_info["price"]
+            total_days = max(1, t_info["days"] + db_info["days"] + ext_info["days"])
 
             calc_session = {
                 "name": user_name or "Пользователь МАКС",
@@ -520,18 +539,24 @@ class MaxWebhookHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "service": "V1PER-MAX-Bot"}).encode("utf-8"))
-        elif self.path == "/export":
-            csv_path = export_leads_to_csv()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok", "exported_file": csv_path}).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
-        if self.path == "/webhook":
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/webhook":
+            # Валидация подписи / секрета вебхука (CWE-306, CWE-290)
+            webhook_secret = os.getenv("MAX_WEBHOOK_SECRET")
+            if webhook_secret:
+                header_secret = self.headers.get("X-Max-Bot-Secret")
+                query_secret = urllib.parse.parse_qs(parsed.query).get("secret", [None])[0]
+                if header_secret != webhook_secret and query_secret != webhook_secret:
+                    logger.warning("[ВЕБХУК] Отклонён неавторизованный запрос: неверный секретный токен")
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
             try:
@@ -617,7 +642,7 @@ def run_polling(engine: BotEngine, api: MaxApiClient):
                     body = msg.get("body", {})
                     text = body.get("text", "")
                     if user_id and text:
-                        logger.info(f"[ВХОДЯЩЕЕ СООБЩЕНИЕ] от {user_name} ({user_id}): {text}")
+                        logger.info(f"[ВХОДЯЩЕЕ СООБЩЕНИЕ] от {user_name} ({user_id}): {mask_pii(text)}")
                         engine.process_incoming(user_id, text, user_name)
                 elif upd_type == "message_callback":
                     cb = upd.get("callback", {})
@@ -664,7 +689,7 @@ def main():
         server_address = (HOST, PORT)
         httpd = HTTPServer(server_address, MaxWebhookHandler)
         logger.info(f"Сервер вебхуков МАКС запущен на http://{HOST}:{PORT}")
-        logger.info("Эндпоинты: GET /health | GET /export | POST /webhook")
+        logger.info("Эндпоинты: GET /health | POST /webhook")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

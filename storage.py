@@ -10,9 +10,34 @@ import sqlite3
 import csv
 import json
 import re
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from config import DATABASE_PATH, EXPORTS_DIR, logger
+
+
+def get_db_connection(db_path: str = DATABASE_PATH) -> sqlite3.Connection:
+    """Создает защищенное соединение с SQLite с включенным WAL-режимом и таймаутами."""
+    db_file = Path(db_path)
+    if db_file.parent:
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=10.0)
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 5000;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    return conn
+
+
+def sanitize_csv_cell(value: Any) -> str:
+    """Нейтрализует CSV/Excel Formula Injection (CWE-1236)."""
+    if value is None:
+        return ""
+    s = str(value).replace("\r", " ").replace("\n", " ").strip()
+    if s and s[0] in ("=", "+", "-", "@", "\t"):
+        return f"'{s}"
+    return s
+
+
 
 # ==============================================================================
 # 1. ИНИЦИАЛИЗАЦИЯ СХЕМЫ БАЗЫ ДАННЫХ
@@ -20,7 +45,7 @@ from config import DATABASE_PATH, EXPORTS_DIR, logger
 
 def init_db(db_path: str = DATABASE_PATH) -> None:
     """Инициализирует таблицы базы данных SQLite."""
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         
         # Таблица входящих коммерческих лидов
@@ -58,7 +83,7 @@ def init_db(db_path: str = DATABASE_PATH) -> None:
 
 def get_user_state(max_user_id: str, db_path: str = DATABASE_PATH) -> tuple[str, Dict[str, Any]]:
     """Возвращает текущий шаг и накопленные данные пользователя."""
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT step, session_data FROM conversation_states WHERE max_user_id = ?",
@@ -76,7 +101,7 @@ def set_user_state(max_user_id: str, step: str, data: Dict[str, Any], db_path: s
     """Обновляет состояние пользователя и данные сессии."""
     now = datetime.now(timezone.utc).isoformat()
     data_json = json.dumps(data, ensure_ascii=False)
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO conversation_states (max_user_id, step, session_data, updated_at)
@@ -90,7 +115,7 @@ def set_user_state(max_user_id: str, step: str, data: Dict[str, Any], db_path: s
 
 def clear_user_state(max_user_id: str, db_path: str = DATABASE_PATH) -> None:
     """Сбрасывает состояние пользователя в idle."""
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM conversation_states WHERE max_user_id = ?", (str(max_user_id),))
         conn.commit()
@@ -111,7 +136,7 @@ def save_lead(
 ) -> int:
     """Сохраняет новую подтвержденную заявку в базу данных."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO commercial_leads (
@@ -137,11 +162,13 @@ def export_leads_to_csv(db_path: str = DATABASE_PATH) -> str:
     """
     Экспортирует все лиды в CSV с кодировкой UTF-8 BOM (utf-8-sig)
     и разделителем точка с запятой (;) по стандарту Microsoft Excel.
+    Нейтрализует CSV Formula Injection (CWE-1236).
     """
     now_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     export_file = EXPORTS_DIR / f"leads_export_{now_str}.csv"
     
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, max_user_id, user_name, phone, service_type,
@@ -159,7 +186,8 @@ def export_leads_to_csv(db_path: str = DATABASE_PATH) -> str:
     with open(export_file, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f, delimiter=";")
         writer.writerow(headers)
-        writer.writerows(rows)
+        for row in rows:
+            writer.writerow([sanitize_csv_cell(cell) for cell in row])
 
     logger.info(f"Экспорт завершен: {export_file} (Всего записей: {len(rows)})")
     return str(export_file)
@@ -170,7 +198,7 @@ def export_leads_to_csv(db_path: str = DATABASE_PATH) -> str:
 
 def get_admin_stats(db_path: str = DATABASE_PATH) -> Dict[str, Any]:
     """Собирает ключевые бизнес-метрики и статистику для закрытой админ-панели."""
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM commercial_leads")
         total_leads = cursor.fetchone()[0]
@@ -208,7 +236,7 @@ def get_admin_stats(db_path: str = DATABASE_PATH) -> Dict[str, Any]:
 
 def get_recent_leads(limit: int = 5, db_path: str = DATABASE_PATH) -> List[Dict[str, Any]]:
     """Возвращает последние N поступивших заявок для админ-панели."""
-    with sqlite3.connect(db_path) as conn:
+    with get_db_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, max_user_id, user_name, phone, service_type, budget_range, created_at

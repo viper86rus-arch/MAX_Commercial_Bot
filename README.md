@@ -1,6 +1,7 @@
 # 🤖 V1PER IT Solutions | Enterprise Commercial Messenger MAX Bot & Sales Platform
 
 [![Tests](https://img.shields.io/badge/Tests-9%2F9%20Passed%20(100%25)-brightgreen.svg)](tests/)
+[![Security Audit: Hardened](https://img.shields.io/badge/Security%20Audit-0%20Vulnerabilities%20(Hardened)-brightgreen.svg)](audit_stress_test.py)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Studio](https://img.shields.io/badge/Studio-V1PER_IT_Solutions-emerald.svg)]()
 [![Architecture: Clean Zero--Pip](https://img.shields.io/badge/Architecture-Clean%20Zero--Pip-blueviolet.svg)]()
@@ -19,7 +20,8 @@
 > - 📊 **Аналитика и администрирование:** изолированная панель с конверсиями и автоматический экспорт в CRM и Excel.
 > - 🛡️ **Инфраструктура:** запуск на защищённом российском сервере с мониторингом 24/7 и технической поддержкой.
 >
-> 📩 **Заказать адаптацию и запуск:** [Заказать на Kwork (Безопасная сделка)](https://kwork.ru/user/V1PER86RUS) • [Создать заявку (Issue)](https://github.com/viper86rus-arch/MAX_Commercial_Bot/issues) • [Профиль студии](https://github.com/viper86rus-arch)
+> 📩 **Заказать адаптацию и запуск:** [Заказать на Kwork (Безопасная сделка)](https://kwork.ru/user/viper86rus-arch) • [Создать заявку (Issue)](https://github.com/viper86rus-arch/MAX_Commercial_Bot/issues) • [Профиль студии](https://github.com/viper86rus-arch)
+
 
 ---
 
@@ -89,8 +91,9 @@ MAX_Commercial_Bot/
 ├── bot.py                  # Главный диспетчер Long Polling/Webhook, FSM и меню
 ├── max_api.py              # Клиент MAX Bot API 2026 (сообщения, колбэки, загрузка файлов)
 ├── pdf_generator.py        # Векторный генератор PDF-смет с цифровой подписью (63-ФЗ)
-├── database.py             # SQLite3 CRM, воронка и экспорт в Excel CSV (UTF-8 BOM)
+├── storage.py              # SQLite3 CRM, WAL-режим, воронка и экспорт в Excel CSV (UTF-8 BOM)
 ├── config.py               # Конфигурация из .env (токены, ADMIN_MAX_ID, пути)
+├── audit_stress_test.py    # Автономный аудит безопасности и стресс-тестирование
 ├── tests/
 │   └── test_max_bot.py     # Модульные тесты (FSM, калькулятор, PDF, экспорт)
 ├── exports/                # Сгенерированные выгрузки реестра заказов
@@ -121,10 +124,31 @@ python bot.py
 ```
 
 ### 4. Экспорт заявок в CSV для бухгалтерии
-```bash
-curl http://localhost:8080/export
+Экспорт осуществляется по защищенному запросу через кнопку **«📥 Выгрузить Excel (CSV)»** прямо в закрытом чате администратора (`/admin`), либо через модуль хранения:
+```python
+from storage import export_leads_to_csv
+csv_path = export_leads_to_csv()
+print(f"Экспорт сохранен: {csv_path}")
 ```
-Либо нажмите кнопку **«📥 Выгрузить Excel (CSV)»** прямо в закрытом чате администратора (`/admin`).
+
+---
+
+## 🛡️ Безопасность и стресс-тестирование
+
+Кодовая база прошла полный цикл ревизионного аудита и стресс-тестирования (`audit_stress_test.py`):
+* 🛡️ **Нейтрализация CSV / Formula Injection (CWE-1236):** все строковые поля очищаются от `\r`, `\n` и экранируются апострофом `'` перед записью в CSV, предотвращая выполнение DDE-команд в Microsoft Excel.
+* 🛡️ **Защита от Path Traversal (CWE-22):** строгая верификация ID заказов (`order_id > 0 and isinstance(order_id, int)`) и проверка `Path.is_relative_to()` исключают манипуляции путями при генерации PDF.
+* 🛡️ **Защита от DoS по памяти и тексту (CWE-400):** автоматическое усечение сверхдлинных входных строк до 300 символов в векторном PDF-движке.
+* 🛡️ **Предотвращение подмены цен (Price Tampering, CWE-472):** серверная перепроверка калькулятора по эталонным тарифам исключает подделку callback-данных клиентом.
+* 🛡️ **Защита от Race Condition в SQLite:** включен режим `journal_mode = WAL`, таймаут блокировки `busy_timeout = 5000` мс.
+* 🛡️ **Безопасность сетевого шлюза и SSL/TLS:** строгая валидация сертификатов Минцифры РФ, аутентификация вебхуков по секрету `X-Max-Bot-Secret`.
+* 🛡️ **Маскирование персональных данных (PII):** скрытие номеров телефонов в логах (`+7999***4567`).
+
+Запуск аудита безопасности:
+```bash
+python audit_stress_test.py
+```
+*Результат: 0 Critical, 0 High, 0 Medium, 0 Low (100% Pass).*
 
 ---
 

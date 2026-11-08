@@ -12,7 +12,7 @@ import re
 import struct
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from config import (
     SELLER_NAME,
@@ -46,9 +46,9 @@ _CACHED_FONT_DATA = None
 _CACHED_CMAP = None
 _CACHED_W_STRING = None
 
-def clean_text_for_pdf(text: Any) -> str:
-    """Удаляет эмодзи и спецсимволы, отсутствующие в стандартном шрифте."""
-    if not text:
+def clean_text_for_pdf(text: Any, max_length: int = 300) -> str:
+    """Удаляет эмодзи и спецсимволы, отсутствующие в стандартном шрифте, с защитой от DoS."""
+    if text is None:
         return ""
     emoji_pattern = re.compile(
         r'[\U00010000-\U0010ffff]'
@@ -56,8 +56,10 @@ def clean_text_for_pdf(text: Any) -> str:
         r'|[\ufe00-\ufe0f]',
         flags=re.UNICODE
     )
-    cleaned = emoji_pattern.sub("", str(text))
-    return cleaned.strip()
+    cleaned = emoji_pattern.sub("", str(text)).strip()
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length] + "..."
+    return cleaned
 
 def get_font_cmap_and_widths():
     """Загрузка шрифта, таблицы cmap и таблицы пропорциональных ширин (/W)."""
@@ -137,13 +139,15 @@ def generate_proposal_pdf(
     total_days: int,
     output_dir: Optional[Path] = None
 ) -> str:
-    """
-    Генерирует официальный A4 PDF-документ сметы с синим штампом ЭЦП (63-ФЗ РФ).
-    """
-    target_dir = Path(output_dir or PROPOSALS_DIR)
+    if not isinstance(order_id, int) or order_id <= 0:
+        raise ValueError(f"Некорректный номер заказа (order_id должен быть положительным целым числом): {order_id}")
+
+    target_dir = Path(output_dir or PROPOSALS_DIR).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
-    pdf_filename = f"proposal_{order_id}.pdf"
-    output_path = target_dir / pdf_filename
+    pdf_filename = f"proposal_{int(order_id)}.pdf"
+    output_path = (target_dir / pdf_filename).resolve()
+    if not output_path.is_relative_to(target_dir):
+        raise ValueError("Обнаружена попытка Path Traversal в имени PDF файла")
 
     font_data, cmap, w_array_str = get_font_cmap_and_widths()
 
