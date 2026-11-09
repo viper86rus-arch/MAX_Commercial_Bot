@@ -16,12 +16,21 @@ from typing import Optional, Dict, Any, List
 from config import DATABASE_PATH, EXPORTS_DIR, logger
 
 
+class ClosingConnection(sqlite3.Connection):
+    """Кастомный класс соединения с автоматическим закрытием дескриптора при выходе из контекста."""
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+
 def get_db_connection(db_path: str = DATABASE_PATH) -> sqlite3.Connection:
     """Создает защищенное соединение с SQLite с включенным WAL-режимом и таймаутами."""
     db_file = Path(db_path)
     if db_file.parent:
         db_file.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, timeout=10.0)
+    conn = sqlite3.connect(db_path, factory=ClosingConnection, timeout=10.0)
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA busy_timeout = 5000;")
     conn.execute("PRAGMA synchronous = NORMAL;")

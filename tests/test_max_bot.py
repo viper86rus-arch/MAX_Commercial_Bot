@@ -17,7 +17,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from storage import (
-    init_db, get_user_state, set_user_state,
+    init_db, get_db_connection, get_user_state, set_user_state,
     clear_user_state, save_lead, export_leads_to_csv,
     get_admin_stats, get_recent_leads
 )
@@ -40,7 +40,7 @@ class TestMaxCommercialBot(unittest.TestCase):
 
     def test_database_schema_initialization(self):
         """Проверяет корректность создания таблиц SQLite."""
-        with sqlite3.connect(self.db_path) as conn:
+        with get_db_connection(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = [r[0] for r in cursor.fetchall()]
@@ -154,7 +154,7 @@ class TestMaxCommercialBot(unittest.TestCase):
         self.assertIn("успешно принята", reply_done)
 
         # Проверка сохранения в SQLite
-        with sqlite3.connect(self.db_path) as conn:
+        with get_db_connection(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT user_name, service_type, budget_range, phone, description FROM commercial_leads WHERE max_user_id=?", (uid,))
             row = cursor.fetchone()
